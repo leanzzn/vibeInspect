@@ -139,6 +139,7 @@ describe('서버 보호 조치', () => {
     expect(typeof parseAskRequest({ ...body, snippets: [{ file: 'a', startLine: 1, endLine: 3, code: 'x' }] })).toBe('string');
     expect(typeof parseAskRequest({ ...body, question: '  ' })).toBe('string');
     expect(typeof parseAskRequest({ ...body, snippets: [] })).toBe('string');
+    expect(parseAskRequest({ ...body, snippets: [], chat: true })).toMatchObject({ chat: true, snippets: [] }); // 채팅은 코드 없이도 보낸다
   });
   it('로그에 키·Authorization·요청 본문이 남지 않는다', async () => {
     const spy = vi.spyOn(console, 'info').mockImplementation(() => {});
@@ -273,10 +274,10 @@ describe('AI 핵심 요약 지도 검사', () => {
   });
 });
 
-describe('쉬운 말 정리', () => {
-  it('영어·괄호·슬래시·가운뎃점을 지운다', async () => {
+describe('글자 정리', () => {
+  it('마크다운·코드 표시 기호만 지운다', async () => {
     const { plain } = await import('./ai/mapGuide');
-    expect(plain('학생 정보(state) 보관 / Context · 저장')).toBe('학생 정보 보관, 저장');
-    expect(plain('API 요청')).toBe('요청');
+    expect(plain('**학생 정보** `보관소`')).toBe('학생 정보 보관소');
+    expect(plain('시작 화면 (샘플 데이터 불러오기)')).toBe('시작 화면 (샘플 데이터 불러오기)');
   });
 });

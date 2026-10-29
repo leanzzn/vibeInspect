@@ -34,6 +34,8 @@ export interface MapNode {
   verification: Verification;
   /** AI 지도 카드일 때: 이 카드로 묶은 정적 분석 항목 id */
   members?: string[];
+  /** 일반인용 한 줄 소개 (AI 지도) */
+  intro?: string;
 }
 
 /** 구조 관계: 시간 순서가 아니다 */

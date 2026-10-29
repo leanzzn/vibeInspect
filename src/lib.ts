@@ -37,7 +37,7 @@ export function resolveLocation(loc: CodeLocation, files: Record<string, string>
 
 // ── 자동 배치 ─────────────────────────────────────────────────
 type XY = { x: number; y: number };
-const COL_W = 300, ROW_H = 150;
+const COL_W = 300, ROW_H = 170; // 카드 높이는 CSS에서 줄 수를 묶어 이 안에 들어가게 한다
 
 /** 열 번호가 주어지면 그대로, 없으면 엣지를 따라 가장 긴 경로 깊이로 열을 정한다(순환은 무시). */
 export function autoLayout(ids: string[], edges: { from: string; to: string }[], columnOf?: (id: string) => number, maxRows = 8): Record<string, XY> {

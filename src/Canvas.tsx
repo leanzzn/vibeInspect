@@ -8,13 +8,16 @@ import type { CanvasLayout } from './model';
 import { autoLayout, layoutKey, loadJSON, mergeLayout, saveJSON } from './lib';
 
 // 글자가 읽히는 범위에서만 축소한다. 처음에는 100% 크기로 왼쪽 위(지도·흐름의 시작)부터 보여 준다.
-const MIN_ZOOM = 0.5, START = { x: 40, y: 40, zoom: 1 };
+const MIN_ZOOM = 0.5, MAX_ZOOM = 2, START = { x: 40, y: 40, zoom: 1 };
+// 휠 한 칸(보통 100px)에 약 2.8배. React Flow 기본(약 1.15배)은 너무 느리다. 더 빠르게/느리게 하려면 이 값만 바꾼다
+const WHEEL_SPEED = 0.015;
 
 export interface CardData extends Record<string, unknown> {
   title: string;
   chip: string;
   chipClass: string;
   summary?: string;
+  intro?: string;
   badge?: string;
   warn?: string;
   step?: number;
@@ -32,7 +35,7 @@ interface Props {
   selectedId: string | null;
   focusId: string | null;
   onSelect: (id: string, type: 'node' | 'edge') => void;
-  /** 카드를 두 번 눌렀을 때 (AI 지도: 큰 주제 펼치기) */
+  /** 카드를 두 번 눌렀을 때 (AI 지도: 세부 구조 보기) */
   onOpen?: (id: string) => void;
 }
 
@@ -46,6 +49,7 @@ function Card({ data, selected }: NodeProps<Node<CardData>>) {
         {data.badge && <span className="chip feature">{data.badge}</span>}
       </div>
       <strong className="card-title">{data.title}</strong>
+      {data.intro && <p className="card-intro">{data.intro}</p>}
       {data.summary && <p className="card-summary">{data.summary}</p>}
       {data.warn && <p className="card-warn">⚠ {data.warn}</p>}
       <Handle type="source" position={Position.Right} />
@@ -113,6 +117,25 @@ function Inner(p: Props) {
     setEdges((es) => applyEdgeChanges(changes.filter((c) => c.type !== 'select' && c.type !== 'remove'), es));
   };
 
+  // 휠·트랙패드 핀치(ctrl+휠) 확대·축소를 직접 처리한다(마우스 위치 기준).
+  // 캡처 단계에서 가로채 React Flow 기본 처리(윈도우 핀치는 특히 느림)가 같이 돌지 않게 한다
+  const wrap = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = wrap.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const { x, y, zoom } = rf.getViewport();
+      const unit = (e.deltaMode === 1 ? 25 : e.deltaMode === 2 ? 400 : 1) * (e.ctrlKey ? 5 : 1); // 핀치는 값이 작게 들어온다
+      const z = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom * 2 ** (-e.deltaY * unit * WHEEL_SPEED)));
+      const r = el.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
+      rf.setViewport({ x: px - ((px - x) * z) / zoom, y: py - ((py - y) * z) / zoom, zoom: z });
+    };
+    el.addEventListener('wheel', onWheel, { passive: false, capture: true });
+    return () => el.removeEventListener('wheel', onWheel, { capture: true });
+  }, [rf]);
+
   const relayout = () => {
     const pos = auto();
     setNodes((ns) => ns.map((n) => ({ ...n, position: pos[n.id] })));
@@ -121,17 +144,19 @@ function Inner(p: Props) {
 
   return (
     <ReactFlow
+      ref={wrap}
       nodes={nodes}
       edges={edges}
       nodeTypes={nodeTypes}
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
+      zoomOnScroll={false}
       onNodeDoubleClick={(_, n) => p.onOpen?.(n.id)}
       zoomOnDoubleClick={!p.onOpen}
       onMoveEnd={(_, vp) => { layout.current.viewport = vp; saveJSON(key, layout.current); }}
       defaultViewport={savedVp ?? START}
       minZoom={MIN_ZOOM}
-      maxZoom={2}
+      maxZoom={MAX_ZOOM}
       nodesConnectable={false}
       deleteKeyCode={null}
       ariaLabelConfig={{ 'node.a11yDescription.default': '화살표 키로 카드를 옮길 수 있습니다. Enter로 선택합니다.' }}

@@ -76,7 +76,7 @@ code { font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; font-siz
 .app { flex: 1; min-height: 0; display: flex; flex-direction: column; border-top: 1px solid var(--line); }
 .notice-bar { display: flex; gap: 10px; align-items: flex-start; padding: 8px 28px; background: var(--side); border-bottom: 1px solid var(--line); font-size: 13px; line-height: 1.55; color: #4a4a4a; }
 
-.main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 6px var(--panel-w); }
+.main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 6px min(var(--panel-w), 50%); }
 .main.collapsed { grid-template-columns: minmax(0, 1fr) 44px; }
 .map-side { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .crumbs { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 9px 16px; border-bottom: 1px solid var(--line); font-size: 14px; }
@@ -225,3 +225,27 @@ code { font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; font-siz
 .explain { padding: 20px; }
 .explain h3 { margin: 0; font-size: 18px; }
 .explain p { margin: 0; font-size: 15px; line-height: 1.7; }
+
+/* ── AI 채팅: 크롬 사이드 패널처럼 오른쪽에 열린다 ── */
+.work { flex: 1; min-height: 0; display: flex; }
+.work > .main { flex: 1; min-width: 0; }
+.chat-slot { width: 360px; flex: none; border-left: 1px solid var(--line); min-height: 0; display: flex; }
+.chat-slot[hidden] { display: none; }
+.chat { flex: 1; display: flex; flex-direction: column; min-height: 0; background: var(--side); }
+.chat-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 14px; }
+.chat-log { flex: 1; min-height: 0; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.bubble { max-width: 90%; padding: 8px 11px; border-radius: 12px; font-size: 14px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+.bubble.user { align-self: flex-end; background: var(--text); color: #fff; }
+.bubble.ai { align-self: flex-start; background: #fff; border: 1px solid var(--line); }
+.bubble.bad { color: var(--brand); border-color: var(--brand); }
+.chat-form { display: flex; gap: 6px; padding: 10px 12px 4px; align-items: flex-end; }
+.chat-form textarea { flex: 1; font: inherit; font-size: 14px; border: 1px solid var(--border); border-radius: 10px; padding: 7px 10px; resize: none; }
+.chat-note { margin: 0; padding: 0 12px 10px; font-size: 11px; color: var(--muted); line-height: 1.5; }
+.chat-fab { position: fixed; right: 20px; bottom: 20px; width: 44px; height: 44px; border-radius: 50%; padding: 0; font-size: 20px; background: var(--text); border-color: var(--text); box-shadow: 0 2px 8px rgba(0,0,0,.18); z-index: 20; }
+.chat-fab:hover:not(:disabled) { background: #000; }
+@media (max-width: 900px) { .chat-slot { position: fixed; inset: 0 0 0 auto; width: min(360px, 100vw); z-index: 30; } }
+.card-intro { margin: 4px 0 0; font-size: 13.5px; font-weight: 600; color: var(--text); line-height: 1.4; }
+/* 카드 높이를 일정하게 묶어 자동 배치 줄 간격(ROW_H) 안에 들어가게 한다 */
+.card-title { display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.card-intro { display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.card-intro + .card-summary { -webkit-line-clamp: 2; line-clamp: 2; }

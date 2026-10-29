@@ -112,6 +112,7 @@ export async function ping(cfg: AiConfig, fetchImpl: Fetch = fetch) {
 
 function mockAnswer(req: AskRequest): string {
   const s = req.snippets[0];
+  if (req.chat || !s) return `[모의 응답] 실제 AI가 만든 답이 아닙니다.${s ? ` 보낸 코드: ${s.file}:${s.startLine}-${s.endLine}` : ''}`;
   return `## 쉬운 설명
 [모의 응답] 실제 AI가 만든 답이 아닙니다. 화면과 근거 확인을 시험하기 위한 고정 문장입니다.
 ## 코드에서 확인한 내용
