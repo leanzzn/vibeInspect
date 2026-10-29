@@ -132,11 +132,11 @@ export default function App({ analysis: base, files }: { analysis: ProjectAnalys
     const feature = a.features.find((f) => f.entryNodeId === n.id);
     const data: CardData = {
       title: n.title, chip: KIND[n.kind].label, chipClass: n.kind, summary: n.summary, intro: n.intro,
-      badge: topLevel ? '두 번 눌러 자세히' : feature ? (manual ? `기능: ${feature.title}` : '흐름 있음') : undefined,
+      badge: feature ? (manual ? `기능: ${feature.title}` : '흐름 있음') : undefined,
       warn: n.kind === 'gap' ? '추적 끊김' : hasValid(n.locations) ? undefined : '연결 위치 확인 불가',
     };
     return { id: n.id, data };
-  }), [a, files, topLevel]);
+  }), [a, files]);
   const mapEdges = useMemo<CanvasEdge[]>(() => a.relations.map((r) => ({ id: r.id, from: r.from, to: r.to, ...MAP_EDGE[r.kind], label: r.label })), [a]);
   const flowItems = useMemo(() => flow?.steps.map((s, i) => ({
     id: s.id,
