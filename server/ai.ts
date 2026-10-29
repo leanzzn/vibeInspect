@@ -39,9 +39,12 @@ export const describeConfig = (cfg: AiConfig) => `[VibeInspect AI] ${status(cfg)
 
 /** Gateway 오류를 사용자용 안내로 바꾼다. 응답 본문의 메시지는 키를 지우고 짧게 자른다. */
 export function classify(code: number, body: unknown, cfg: AiConfig, retryAfter?: string | null): Fail {
-  let detail = (body as { detail?: { message?: unknown } } | null)?.detail?.message;
+  const d = (body as { detail?: unknown } | null)?.detail;
+  let detail = typeof d === 'string' ? d : (d as { message?: unknown } | undefined)?.message;
   detail = typeof detail === 'string' ? detail.split(cfg.apiKey || '\u0000').join('[가림]').slice(0, 200) : '';
   const tail = detail ? ` (Gateway 메시지: ${detail})` : '';
+  // JSON이 아닌 403 = Gateway 앞단 방화벽이 막은 것(예: Cloudflare Workers에서 보낸 요청). 키·모델 문제가 아니다
+  if (code === 403 && body === null) return { ok: false, kind: 'blocked', message: 'ChatKHU 방화벽이 이 서버에서 보낸 요청을 막았습니다. 키·모델 문제가 아닙니다. 로컬(npm run dev)에서는 동작합니다.' };
   const m: Record<number, [string, string]> = {
     400: ['bad-request', '요청이 거절되었습니다. 이 모델이 텍스트 생성용이 아닐 수 있습니다.'],
     401: ['auth', 'API 키 인증에 실패했습니다. 키가 정확한지, 폐기되거나 비활성화되지 않았는지 확인하세요.'],
@@ -66,7 +69,7 @@ async function gateway(cfg: AiConfig, path: string, init: RequestInit, fetchImpl
       ...init,
       headers: { Authorization: `Bearer ${cfg.apiKey}`, 'Content-Type': 'application/json' },
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-      redirect: 'error', // 다른 주소로 넘어가며 키가 따라가지 않게 한다
+      redirect: 'manual', // 다른 주소로 넘어가며 키가 따라가지 않게 한다(3xx는 오류로 처리됨). Workers는 'error'를 지원하지 않는다
     });
     const json = await r.json().catch(() => null);
     if (!r.ok) return classify(r.status, json, cfg, r.headers.get('retry-after'));
