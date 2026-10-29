@@ -219,3 +219,9 @@ code { font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; font-siz
 .crumbs .icon-btn, .side-bar .icon-btn { color: var(--text); }
 .canvas-tools .icon-btn { background: #fff; border: 1px solid var(--pill); color: var(--text); }
 .icon-btn:disabled { opacity: .35; cursor: default; }
+/* AI 구조 정리 시작 화면 · 쉬운 설명 패널 */
+.ai-start { display: flex; flex-direction: column; gap: 12px; color: var(--ink, #252525); }
+.ai-start strong { font-size: 17px; }
+.explain { padding: 20px; }
+.explain h3 { margin: 0; font-size: 18px; }
+.explain p { margin: 0; font-size: 15px; line-height: 1.7; }

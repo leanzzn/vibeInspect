@@ -31,8 +31,8 @@ export default {
       return typeof parsed === 'string' ? json({ ok: false, kind: 'bad-request', message: parsed }, 400) : json(await ask(cfg, parsed, fetch, req.signal));
     }
     if (url.pathname === '/api/ai/map') {
-      const outline = parseMapRequest(body);
-      return outline ? json(await summarize(cfg, outline, fetch, req.signal)) : json({ ok: false, kind: 'bad-request', message: '요약할 목록이 비었거나 너무 깁니다.' }, 400);
+      const m = parseMapRequest(body);
+      return m ? json(await summarize(cfg, m, fetch, req.signal)) : json({ ok: false, kind: 'bad-request', message: '요약할 목록이 비었거나 너무 깁니다.' }, 400);
     }
     return json({ ok: false, kind: 'not-found', message: '없는 경로입니다.' }, 404);
   },

@@ -4,7 +4,7 @@ import CodePanel from './CodePanel';
 import AiPanel, { AiBoundary } from './AiPanel';
 import type { CodeLocation, FlowRelationKind, NodeKind, ProjectAnalysis, Provenance, StructureRelationKind, Verification } from './model';
 import { UI_KEY, loadJSON, resolveLocation, saveJSON, viewKey } from './lib';
-import { buildOutline, parseSummary } from './ai/mapGuide';
+import { buildOutline, parseSummary, subAnalysis } from './ai/mapGuide';
 import { sendMap } from './ai/context';
 
 const PROVENANCE: Record<Provenance, string> = { 'manual-example': '수동 예제', 'static-analysis': '정적 분석', 'ai-inferred': 'AI 추정' };
@@ -33,7 +33,7 @@ const FLOW_EDGE: Record<FlowRelationKind, EdgeStyle> = {
   data: MAP_EDGE.data, render: MAP_EDGE.render, gap: MAP_EDGE.unresolved,
 };
 
-const MAP_HINT = '연결선은 구조 관계(이동·호출·참조)이며 시간 순서가 아닙니다. 빨간 점선 카드는 코드만으로 대상을 확정하지 못한 지점입니다.';
+const MAP_HINT = '선은 서로 이어져 있다는 뜻이고, 시간 순서는 아닙니다. 빨간 점선은 코드만으로 확실히 알 수 없는 곳입니다.';
 const svg = (d: ReactNode) => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{d}</svg>;
 const ICON = {
   map: svg(<><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z" /><path d="M9 4v14M15 6v14" /></>),
@@ -47,24 +47,48 @@ type Sel = { id: string; type: 'node' | 'edge' } | null;
 
 export default function App({ analysis: base, files }: { analysis: ProjectAnalysis; files: Record<string, string> }) {
   const manual = base.provenance === 'manual-example';
-  // ── AI 핵심 요약 지도 (자동 분석일 때만). 보내기 전에 보낼 목록을 보여 주고 동의를 받는다 ──
-  const [summary, setSummary] = useState<ProjectAnalysis | null>(null);
-  const [useSummary, setUseSummary] = useState(true);
-  const [mapReq, setMapReq] = useState<ReturnType<typeof buildOutline> | null>(null);
-  const [mapBusy, setMapBusy] = useState(false);
+  // ── AI 구조 지도 (올린 프로젝트일 때). 정적 분석은 재료로만 쓰고, 화면에는 AI가 정리한 두 단계 지도를 보여 준다 ──
+  // 1단계 큰 주제 → 두 번 누르면 2단계 작은 주제(그때 AI에 요청). 결과는 같은 ZIP을 다시 올릴 때를 위해 저장한다.
+  const auto = !manual;
+  const cacheKey = `vibeinspect:v1:aimap:${base.project.id}`;
+  const [ai, setAi] = useState<{ top?: ProjectAnalysis; details: Record<string, ProjectAnalysis> }>(() => (auto && loadJSON(cacheKey)) || { details: {} });
+  useEffect(() => { if (ai.top) saveJSON(cacheKey, ai); }, [ai, cacheKey]);
+  const [topic, setTopic] = useState<string | null>(null);
+  const [rawMap, setRawMap] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
   const [mapErr, setMapErr] = useState<string | null>(null);
+  const [codeFor, setCodeFor] = useState<string | null>(null);
   const mapAbort = useRef<AbortController | null>(null);
   useEffect(() => () => mapAbort.current?.abort(), []);
-  const a = summary && useSummary ? summary : base;
-  const runSummary = async () => {
-    if (!mapReq) return;
+  const outline = useMemo(() => (auto ? buildOutline(base) : null), [auto, base]);
+  const aiMode = auto && !rawMap;
+  const a = !aiMode ? base : (topic && ai.details[topic]) || ai.top || base;
+  const level = aiMode && ai.top ? (topic ? 2 : 1) : 0;
+
+  const runMap = async (src: ProjectAnalysis, o: { text: string; ids: string[] }, lv: 'top' | 'detail', suffix: string, what: string) => {
     mapAbort.current = new AbortController();
-    setMapBusy(true); setMapErr(null);
-    const r = await sendMap(mapReq.text, mapAbort.current.signal);
-    const s = r.ok ? parseSummary(r.text, base, mapReq.ids) : r.message;
-    setMapBusy(false); setMapReq(null);
-    if (typeof s === 'string') return setMapErr(s);
-    setSummary(s); setUseSummary(true); setSel(null);
+    setBusy(what); setMapErr(null);
+    const r = await sendMap(o.text, lv, mapAbort.current.signal);
+    const s = r.ok ? parseSummary(r.text, src, o.ids, suffix) : r.message;
+    setBusy(null);
+    if (typeof s === 'string') { setMapErr(s); return null; }
+    return s;
+  };
+  const startMap = async () => {
+    const s = outline && await runMap(base, outline, 'top', 'ai', 'AI가 프로젝트 구조를 읽는 중입니다. 보통 10~30초 걸립니다.');
+    if (s) setAi({ top: s, details: {} });
+  };
+  const openTopic = async (id: string) => {
+    if (level !== 1 || busy) return;
+    const t = ai.top!.nodes.find((n) => n.id === id);
+    if (!t?.members) return;
+    if (!ai.details[id]) {
+      const sub = subAnalysis(base, t.members);
+      const s = await runMap(sub, buildOutline(sub), 'detail', `ai:${id}`, `${t.title} 안을 자세히 정리하는 중입니다.`);
+      if (!s) return;
+      setAi((x) => ({ ...x, details: { ...x.details, [id]: s } }));
+    }
+    setTopic(id); setSel(null);
   };
   const hasValid = (locs: CodeLocation[]) => locs.some((l) => resolveLocation(l, files).ok);
   const [ui, setUi] = useState<UiState>(() => {
@@ -91,12 +115,12 @@ export default function App({ analysis: base, files }: { analysis: ProjectAnalys
   const mapItems = useMemo(() => a.nodes.map((n) => {
     const feature = a.features.find((f) => f.entryNodeId === n.id);
     const data: CardData = {
-      title: n.title, chip: KIND[n.kind].label, chipClass: n.kind, summary: n.summary,
-      badge: feature ? (manual ? `기능: ${feature.title}` : '흐름 있음') : undefined,
+      title: n.title, chip: level === 1 ? '큰 주제' : KIND[n.kind].label, chipClass: n.kind, summary: n.summary,
+      badge: level === 1 ? '두 번 눌러 자세히' : feature ? (manual ? `기능: ${feature.title}` : '흐름 있음') : undefined,
       warn: n.kind === 'gap' ? '추적 끊김' : hasValid(n.locations) ? undefined : '연결 위치 확인 불가',
     };
     return { id: n.id, data };
-  }), [a, files]);
+  }), [a, files, level]);
   const mapEdges = useMemo<CanvasEdge[]>(() => a.relations.map((r) => ({ id: r.id, from: r.from, to: r.to, ...MAP_EDGE[r.kind], label: r.label })), [a]);
   const flowItems = useMemo(() => flow?.steps.map((s, i) => ({
     id: s.id,
@@ -112,7 +136,7 @@ export default function App({ analysis: base, files }: { analysis: ProjectAnalys
   const nodeTitle = (id: string) => a.nodes.find((n) => n.id === id)?.title ?? id;
   const tab = ui.tab ?? 'code';
   // ── 선택된 항목 → 코드 패널 ──
-  let panel: { key: string; title: string; desc: string; note?: string; action?: ReactNode; locations: CodeLocation[]; verification?: Verification } | null = null;
+  let panel: { key: string; title: string; desc: string; explain?: string; note?: string; action?: ReactNode; locations: CodeLocation[]; verification?: Verification } | null = null;
   if (flow) {
     const s = flow.steps[step];
     panel = { key: s.id, title: `${step + 1}. ${s.title}`, desc: `흐름 '${flow.title}'의 ${step + 1}단계. ${s.explanation}`, note: `${PROVENANCE[s.provenance]} · ${s.explanation}`, locations: s.locations, verification: s.verification };
@@ -120,7 +144,7 @@ export default function App({ analysis: base, files }: { analysis: ProjectAnalys
     const n = a.nodes.find((x) => x.id === sel.id);
     const f = n && a.features.find((x) => x.entryNodeId === n.id && x.flowId);
     if (n) panel = {
-      key: n.id, title: n.title, desc: `${KIND[n.kind].label}. ${n.summary}`, note: `${KIND[n.kind].label} · ${PROVENANCE[n.provenance]} · ${n.summary}`,
+      key: n.id, title: n.title, desc: `${KIND[n.kind].label}. ${n.summary}`, explain: n.summary, note: `${KIND[n.kind].label} · ${PROVENANCE[n.provenance]} · ${n.summary}`,
       action: f && <button className="primary sm" onClick={() => openFlow(f.flowId!)}>▶ 동작 흐름 보기</button>,
       locations: n.locations, verification: n.verification,
     };
@@ -128,7 +152,8 @@ export default function App({ analysis: base, files }: { analysis: ProjectAnalys
     const r = a.relations.find((x) => x.id === sel.id);
     // 그릴 때 실행되는 관계인지, 이벤트 같은 계기가 있어야 일어나는 관계인지 구분한다
     const when = manual || !r || r.kind === 'render' ? '' : r.trigger ? ` · 계기: ${r.trigger}` : ' · 화면을 그릴 때';
-    if (r) panel = { key: r.id, title: `${MAP_EDGE[r.kind].label}: ${r.label}`, desc: `${nodeTitle(r.from)} → ${nodeTitle(r.to)} 연결선. ${r.label}`,
+    if (r) panel = { key: r.id, title: level > 0 ? r.label : `${MAP_EDGE[r.kind].label}: ${r.label}`, desc: `${nodeTitle(r.from)} → ${nodeTitle(r.to)} 연결선. ${r.label}`,
+      explain: `${nodeTitle(r.from)} 다음에 ${nodeTitle(r.to)} 쪽이 이어집니다.`,
       note: `${nodeTitle(r.from)} → ${nodeTitle(r.to)}${when}`, locations: r.locations };
   }
 
@@ -189,7 +214,8 @@ export default function App({ analysis: base, files }: { analysis: ProjectAnalys
               </>
             ) : (
               <>
-                <strong>서비스 전체 지도</strong>
+                {level === 2 && <button className="icon-btn" onClick={() => { setTopic(null); setSel(null); }} title="전체 구조로 돌아가기" aria-label="전체 구조로 돌아가기">{ICON.map}</button>}
+                <strong>{level === 2 ? ai.top!.nodes.find((n) => n.id === topic)?.title : level === 1 ? '전체 구조' : '서비스 전체 지도'}</strong>
                 <span className="caveat-i" tabIndex={0} title={MAP_HINT} aria-label={MAP_HINT}>ⓘ</span>
                 {a.flows.length > 0 && (
                   <select className="flow-pick" value="" aria-label="동작 흐름 열기" onChange={(e) => e.target.value && openFlow(e.target.value)}>
@@ -197,12 +223,8 @@ export default function App({ analysis: base, files }: { analysis: ProjectAnalys
                     {a.features.filter((f) => f.flowId).map((f) => <option key={f.id} value={f.flowId}>{f.title}</option>)}
                   </select>
                 )}
-                {!manual && (summary
-                  ? <button className="sm" onClick={() => { setUseSummary((u) => !u); setSel(null); }} title="AI 요약 지도와 자동 분석 전체 지도를 바꿔 봅니다">
-                      {useSummary ? '전체 보기' : 'AI 핵심만 보기'}</button>
-                  : <button className="primary sm" disabled={mapBusy} onClick={() => { setMapErr(null); setMapReq(buildOutline(base)); }}
-                      title="AI가 핵심 카드만 쉬운 말로 다시 묶습니다. 보내기 전에 내용을 보여 줍니다.">AI 핵심 요약</button>)}
-                {summary && useSummary && <span className="chip prov auto" title={summary.notice}>AI 추정 · 틀릴 수 있음</span>}
+                {auto && rawMap && <button className="sm" onClick={() => { setRawMap(false); setSel(null); }}>AI 정리 보기</button>}
+                {level > 0 && <span className="chip prov auto" title={a.notice}>AI가 정리함, 틀릴 수 있음</span>}
               </>
             )}
             <span className="legend" aria-label="연결선 범례">
@@ -218,25 +240,29 @@ export default function App({ analysis: base, files }: { analysis: ProjectAnalys
             )}
           </nav>
 
-          {(mapReq || mapBusy || mapErr) && !flow && (
-            <div className="ai-box ai-consent" role="region" aria-label="AI 핵심 요약">
-              {mapBusy ? <div className="ai-row"><span>AI가 핵심 지도를 만드는 중…</span><button className="sm" onClick={() => mapAbort.current?.abort()}>요청 취소</button></div>
-                : mapErr ? <div className="ai-row"><span className="ai-bad">{mapErr}</span><button className="sm" onClick={() => setMapErr(null)}>닫기</button></div>
-                : mapReq && <>
-                  <strong>아래 목록을 ChatKHU(외부 AI 서비스)로 보냅니다</strong>
-                  <p className="muted">코드 본문은 보내지 않고, 자동 분석이 찾은 이름·파일 위치·선언 한 줄과 연결 목록만 보냅니다. 크레딧이 차감될 수 있습니다.</p>
-                  {mapReq.truncated && <p className="ai-bad">항목이 많아 일부만 보냅니다. 요약에서 빠지는 부분이 있을 수 있습니다.</p>}
-                  <details><summary>실제로 보낼 내용 전체</summary><pre className="ai-pre">{mapReq.text}</pre></details>
-                  <div className="ai-row">
-                    <button className="primary" onClick={runSummary}>확인했고 보냅니다</button>
-                    <button onClick={() => setMapReq(null)}>보내지 않기</button>
-                  </div>
-                </>}
+          {level > 0 && (busy || mapErr) && (
+            <div className="ai-box ai-row" role="status">
+              {busy ? <><span>{busy}</span><button className="sm" onClick={() => mapAbort.current?.abort()}>멈추기</button></>
+                : <><span className="ai-bad">{mapErr}</span><button className="sm" onClick={() => setMapErr(null)}>닫기</button></>}
             </div>
           )}
 
           <div className="canvas-wrap">
-            {!flow && a.nodes.length === 0 ? (
+            {aiMode && !ai.top ? (
+              <div className="empty canvas-empty ai-start" role="region" aria-label="AI 구조 정리">
+                {busy ? <><strong role="status">{busy}</strong><button className="sm" onClick={() => mapAbort.current?.abort()}>멈추기</button></> : <>
+                  <strong>AI가 이 프로젝트의 구조를 쉽게 정리해 드립니다</strong>
+                  <p className="muted">코드 내용은 보내지 않고, 파일 위치와 이름 목록만 외부 AI 서비스 ChatKHU로 보냅니다. 큰 주제를 펼칠 때도 그 주제에 속한 목록만 보냅니다. 쓸 때마다 크레딧이 조금 차감됩니다.</p>
+                  {outline?.truncated && <p className="ai-bad">프로젝트가 커서 목록의 일부만 보냅니다.</p>}
+                  {mapErr && <p className="ai-bad" role="alert">{mapErr}</p>}
+                  <div className="ai-row">
+                    <button className="primary" onClick={startMap}>AI로 구조 정리하기</button>
+                    <button onClick={() => setRawMap(true)}>AI 없이 기본 지도 보기</button>
+                  </div>
+                  <details><summary>보낼 목록 보기</summary><pre className="ai-pre">{outline?.text}</pre></details>
+                </>}
+              </div>
+            ) : !flow && a.nodes.length === 0 ? (
               <div className="empty canvas-empty" role="status">
                 <strong>지도에 표시할 연결을 찾지 못했습니다.</strong>
                 <p className="muted">지원하는 패턴(JSX 이벤트, 함수 호출, useState, 화면 이동)이 없었습니다. 오른쪽 위 분석 범위 아이콘에서 읽은 파일을 확인하세요.</p>
@@ -249,7 +275,8 @@ export default function App({ analysis: base, files }: { analysis: ProjectAnalys
             ) : (
               <Canvas projectId={a.project.id} view="map" items={mapItems} edges={mapEdges}
                 layoutEdges={a.relations} columnOf={(id) => KIND[a.nodes.find((n) => n.id === id)!.kind].col} showEdgeLabels={false}
-                selectedId={sel?.id ?? null} focusId={focusId} onSelect={(id, type) => setSel({ id, type })} />
+                selectedId={sel?.id ?? null} focusId={focusId} onSelect={(id, type) => setSel({ id, type })}
+                onOpen={level === 1 ? openTopic : undefined} />
             )}
           </div>
         </div>
@@ -269,7 +296,7 @@ export default function App({ analysis: base, files }: { analysis: ProjectAnalys
           <div className="side-bar">
             {!ui.collapsed && (
               <div className="side-tabs" role="tablist" aria-label="오른쪽 패널">
-                <button role="tab" aria-selected={tab === 'code'} className={tab === 'code' ? 'on' : ''} onClick={() => patch({ tab: 'code' })}>코드</button>
+                <button role="tab" aria-selected={tab === 'code'} className={tab === 'code' ? 'on' : ''} onClick={() => patch({ tab: 'code' })}>{level > 0 ? '설명' : '코드'}</button>
                 <button role="tab" aria-selected={tab === 'ai'} className={tab === 'ai' ? 'on' : ''} onClick={() => patch({ tab: 'ai' })}>AI</button>
               </div>
             )}
@@ -279,7 +306,17 @@ export default function App({ analysis: base, files }: { analysis: ProjectAnalys
             </button>
           </div>
           {!ui.collapsed && tab === 'code' && (panel
-            ? <CodePanel key={panel.key} title={panel.title} note={panel.note} action={panel.action} locations={panel.locations} verification={panel.verification} files={files} />
+            ? level > 0 && codeFor !== panel.key
+              // AI 지도에서는 쉬운 설명을 먼저 보여 주고, 코드는 원할 때만 연다
+              ? <div className="ai-pad explain">
+                  <h3>{panel.title}</h3>
+                  <p>{panel.explain}</p>
+                  <div className="ai-row">
+                    {level === 1 && sel?.type === 'node' && <button className="primary sm" disabled={!!busy} onClick={() => openTopic(sel.id)}>자세히 보기</button>}
+                    <button className="sm" onClick={() => setCodeFor(panel!.key)}>실제 코드 보기</button>
+                  </div>
+                </div>
+              : <CodePanel key={panel.key} title={panel.title} note={panel.note} action={panel.action} locations={panel.locations} verification={panel.verification} files={files} />
             : <div className="empty">카드를 선택하면 코드가 열립니다.</div>)}
           {/* 탭을 바꿔도 답변이 사라지지 않게 숨기기만 한다. 선택 항목이 바뀌면 새로 시작한다(다시 동의 필요). */}
           {!ui.collapsed && (

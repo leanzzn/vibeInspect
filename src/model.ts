@@ -32,6 +32,8 @@ export interface MapNode {
   locations: CodeLocation[];
   provenance: Provenance;
   verification: Verification;
+  /** AI 지도 카드일 때: 이 카드로 묶은 정적 분석 항목 id */
+  members?: string[];
 }
 
 /** 구조 관계: 시간 순서가 아니다 */

@@ -106,8 +106,8 @@ export default function Shell() {
           </div>
           {project && (
             <span className="top-chips" title={`${project.analysis.notice} 카드와 선을 움직여도 원본 코드는 바뀌지 않습니다.`}>
-              <span className={`chip prov ${project === MANUAL ? 'manual' : 'auto'}`}>{project === MANUAL ? '수동 예제' : '자동 분석'}</span>
-              <span className="chip">정적 분석 · 실제 실행 기록 아님</span>
+              <span className={`chip prov ${project === MANUAL ? 'manual' : 'auto'}`}>{project === MANUAL ? '사람이 만든 예제' : '올린 프로젝트'}</span>
+              <span className="chip">코드를 읽고 만든 지도, 실제 사용 기록 아님</span>
             </span>
           )}
         </header>

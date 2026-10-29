@@ -32,6 +32,8 @@ interface Props {
   selectedId: string | null;
   focusId: string | null;
   onSelect: (id: string, type: 'node' | 'edge') => void;
+  /** 카드를 두 번 눌렀을 때 (AI 지도: 큰 주제 펼치기) */
+  onOpen?: (id: string) => void;
 }
 
 function Card({ data, selected }: NodeProps<Node<CardData>>) {
@@ -124,6 +126,8 @@ function Inner(p: Props) {
       nodeTypes={nodeTypes}
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
+      onNodeDoubleClick={(_, n) => p.onOpen?.(n.id)}
+      zoomOnDoubleClick={!p.onOpen}
       onMoveEnd={(_, vp) => { layout.current.viewport = vp; saveJSON(key, layout.current); }}
       defaultViewport={savedVp ?? START}
       minZoom={MIN_ZOOM}

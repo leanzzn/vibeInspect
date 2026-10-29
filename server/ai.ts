@@ -3,7 +3,7 @@
 // 키·Authorization 헤더·요청 본문은 로그에 남기지 않는다.
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { buildMessages, parseAskRequest, type AskRequest, type AskResult } from '../src/ai/prompt';
-import { buildMapMessages, parseMapRequest } from '../src/ai/mapGuide';
+import { buildMapMessages, parseMapRequest, type MapLevel } from '../src/ai/mapGuide';
 
 export const DEFAULT_BASE_URL = 'https://factchat-cloud.mindlogic.ai/v1/gateway';
 const TIMEOUT_MS = 60_000;
@@ -126,8 +126,8 @@ export const ask = (cfg: AiConfig, req: AskRequest, fetchImpl: Fetch = fetch, si
   generate(cfg, buildMessages(req), () => mockAnswer(req), fetchImpl, signal);
 
 /** 요약 지도: 세부 목록(이름·위치)만 보내고 JSON 답을 받는다. 검사는 브라우저(parseSummary)가 한다. */
-export const summarize = (cfg: AiConfig, outline: string, fetchImpl: Fetch = fetch, signal?: AbortSignal) =>
-  generate(cfg, buildMapMessages(outline), () => {
+export const summarize = (cfg: AiConfig, { outline, level }: { outline: string; level: MapLevel }, fetchImpl: Fetch = fetch, signal?: AbortSignal) =>
+  generate(cfg, buildMapMessages(outline, level), () => {
     const n = [...outline.matchAll(/^(n\d+) \|/gm)].slice(0, 3).map((m) => m[1]);
     return JSON.stringify({ cards: n.map((id, i) => ({ id: `c${i}`, title: `[모의 응답] 카드 ${i + 1}`, kind: 'page', summary: '실제 AI가 만든 카드가 아닙니다.', members: [id] })), links: [] });
   }, fetchImpl, signal);
@@ -205,11 +205,11 @@ export function createAiMiddleware(cfg: AiConfig, fetchImpl: Fetch = fetch) {
       return send(res, 200, r);
     }
     if (route === '/api/ai/map') {
-      const outline = parseMapRequest(body);
-      if (!outline) { log('거절: 형식'); return send(res, 400, { ok: false, kind: 'bad-request', message: '요약할 목록이 비었거나 너무 깁니다.' }); }
+      const m = parseMapRequest(body);
+      if (!m) { log('거절: 형식'); return send(res, 400, { ok: false, kind: 'bad-request', message: '요약할 목록이 비었거나 너무 깁니다.' }); }
       const abort = new AbortController();
       res.on('close', () => { if (!res.writableEnded) abort.abort(); });
-      const r = await summarize(cfg, outline, fetchImpl, abort.signal);
+      const r = await summarize(cfg, m, fetchImpl, abort.signal);
       log(r.ok ? r.source : r.kind);
       return send(res, 200, r);
     }

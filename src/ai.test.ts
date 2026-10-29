@@ -272,3 +272,11 @@ describe('AI 핵심 요약 지도 검사', () => {
     expect(parseSummary('JSON 아님', base, o.ids)).toBeTypeOf('string');
   });
 });
+
+describe('쉬운 말 정리', () => {
+  it('영어·괄호·슬래시·가운뎃점을 지운다', async () => {
+    const { plain } = await import('./ai/mapGuide');
+    expect(plain('학생 정보(state) 보관 / Context · 저장')).toBe('학생 정보 보관, 저장');
+    expect(plain('API 요청')).toBe('요청');
+  });
+});
