@@ -253,3 +253,22 @@ describe('끊긴 지점 관련 코드 찾기', () => {
     expect(prepareSnippets(r, files).snippets).toHaveLength(1); // 위치가 실제 코드와 맞아 전송 대상이 된다
   });
 });
+
+describe('AI 핵심 요약 지도 검사', () => {
+  it('실제 항목이 없는 카드와 코드 근거가 없는 연결선은 버린다', async () => {
+    const { buildOutline, parseSummary } = await import('./ai/mapGuide');
+    const node = (id: string) => ({ id, title: id, kind: 'logic' as const, summary: '', provenance: 'static-analysis' as const, verification: { status: 'confirmed' as const }, locations: [] });
+    const base = { project: { id: 'p', name: 'p', sourceName: 'p', stack: '', description: '' }, provenance: 'static-analysis' as const, notice: '', features: [], flows: [],
+      nodes: [node('A'), node('B'), node('C')],
+      relations: [{ id: 'r', from: 'A', to: 'B', kind: 'call' as const, label: 'x', locations: [], provenance: 'static-analysis' as const }] };
+    const o = buildOutline(base);
+    const ai = JSON.stringify({ cards: [{ id: 'c1', title: '가', kind: 'page', members: ['n0'] }, { id: 'c2', title: '나', kind: 'zzz', members: ['n1'] }, { id: 'c3', title: '다', members: ['n2'] }, { id: 'c4', title: '가짜', members: ['n99'] }],
+      links: [{ from: 'c1', to: 'c2', label: '근거 있음' }, { from: 'c2', to: 'c3', label: '근거 없음' }] });
+    const s = parseSummary(`설명 앞말 ${ai} 뒷말`, base, o.ids);
+    if (typeof s === 'string') throw new Error(s);
+    expect(s.nodes.map((n) => n.title)).toEqual(['가', '나', '다']);
+    expect(s.nodes[1].kind).toBe('logic');
+    expect(s.relations.map((r) => r.label)).toEqual(['근거 있음']);
+    expect(parseSummary('JSON 아님', base, o.ids)).toBeTypeOf('string');
+  });
+});

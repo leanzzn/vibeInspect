@@ -1,8 +1,9 @@
 // Cloudflare Worker 배포용: 화면 파일(dist)은 ASSETS가 주고, /api/ai/* 만 여기서 처리한다.
 // 로컬 미들웨어(ai.ts의 createAiMiddleware)와 같은 함수를 쓴다. 키는 Worker secret에만 있다.
 // 주의: 공개 주소라 주소를 아는 누구나 이 키의 크레딧으로 AI를 부를 수 있다(사용자 결정, 프로젝트 종료 후 키 제거 예정).
-import { ask, checkConnection, ping, readConfig, status } from './ai';
+import { ask, checkConnection, ping, readConfig, status, summarize } from './ai';
 import { parseAskRequest } from '../src/ai/prompt';
+import { parseMapRequest } from '../src/ai/mapGuide';
 
 interface Env { ASSETS: { fetch: typeof fetch }; [k: string]: unknown }
 
@@ -28,6 +29,10 @@ export default {
     if (url.pathname === '/api/ai/ask') {
       const parsed = parseAskRequest(body);
       return typeof parsed === 'string' ? json({ ok: false, kind: 'bad-request', message: parsed }, 400) : json(await ask(cfg, parsed, fetch, req.signal));
+    }
+    if (url.pathname === '/api/ai/map') {
+      const outline = parseMapRequest(body);
+      return outline ? json(await summarize(cfg, outline, fetch, req.signal)) : json({ ok: false, kind: 'bad-request', message: '요약할 목록이 비었거나 너무 깁니다.' }, 400);
     }
     return json({ ok: false, kind: 'not-found', message: '없는 경로입니다.' }, 404);
   },

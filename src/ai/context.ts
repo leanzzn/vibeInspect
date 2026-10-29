@@ -177,3 +177,6 @@ export function relatedLocations(gap: CodeLocation[], files: Record<string, stri
   }
   return out;
 }
+
+/** 요약 지도 요청. 사용자가 미리 본 세부 목록(outline)만 보낸다. */
+export const sendMap = (outline: string, signal?: AbortSignal, fetchImpl: Fetch = fetch) => call<AskResult>('/api/ai/map', { outline }, fetchImpl, signal);

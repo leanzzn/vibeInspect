@@ -4,11 +4,13 @@ import CodePanel from './CodePanel';
 import AiPanel, { AiBoundary } from './AiPanel';
 import type { CodeLocation, FlowRelationKind, NodeKind, ProjectAnalysis, Provenance, StructureRelationKind, Verification } from './model';
 import { UI_KEY, loadJSON, resolveLocation, saveJSON, viewKey } from './lib';
+import { buildOutline, parseSummary } from './ai/mapGuide';
+import { sendMap } from './ai/context';
 
 const PROVENANCE: Record<Provenance, string> = { 'manual-example': '수동 예제', 'static-analysis': '정적 분석', 'ai-inferred': 'AI 추정' };
 const KIND: Record<NodeKind, { label: string; col: number }> = {
-  module: { label: '파일 최상위', col: 0 }, routing: { label: '주소·접근', col: 0 }, page: { label: '화면', col: 1 }, ui: { label: '화면 구성요소', col: 2 },
-  event: { label: '이벤트 함수', col: 3 }, state: { label: '상태 보관', col: 4 }, logic: { label: '계산 로직', col: 5 },
+  module: { label: '파일 최상위', col: 0 }, routing: { label: '주소·접근', col: 0 }, page: { label: '화면', col: 1 }, ui: { label: '화면 조각', col: 2 },
+  event: { label: '버튼 동작', col: 3 }, state: { label: '정보 보관', col: 4 }, logic: { label: '계산·처리', col: 5 },
   data: { label: '데이터', col: 6 }, gap: { label: '추적 끊김', col: 6 },
 };
 // 단조로운 색: 종류는 선 모양으로 구분하고, 끊긴 지점만 강조색을 쓴다
@@ -16,10 +18,10 @@ const INK = '#252525', GREY = '#8a857f', LIGHT = '#bdb7b0', RED = '#c0060f';
 type EdgeStyle = { label: string; color: string; dash?: string };
 const MAP_EDGE: Record<StructureRelationKind, EdgeStyle> = {
   navigate: { label: '화면 이동', color: INK },
-  call: { label: '함수 호출', color: GREY },
+  call: { label: '기능 실행', color: GREY },
   event: { label: '이벤트 연결', color: INK, dash: '8 3' },
   setState: { label: '상태 변경', color: GREY, dash: '8 3' },
-  data: { label: '데이터 참조', color: GREY, dash: '2 3' },
+  data: { label: '정보 사용', color: GREY, dash: '2 3' },
   render: { label: '화면에 표시', color: LIGHT },
   unresolved: { label: '확인 필요 · 분석하지 못함', color: RED, dash: '4 4' },
 };
@@ -43,8 +45,27 @@ interface UiState { panelWidth: number; collapsed: boolean; tab?: 'code' | 'ai' 
 interface ViewState { view: string; step: number }
 type Sel = { id: string; type: 'node' | 'edge' } | null;
 
-export default function App({ analysis: a, files }: { analysis: ProjectAnalysis; files: Record<string, string> }) {
-  const manual = a.provenance === 'manual-example';
+export default function App({ analysis: base, files }: { analysis: ProjectAnalysis; files: Record<string, string> }) {
+  const manual = base.provenance === 'manual-example';
+  // ── AI 핵심 요약 지도 (자동 분석일 때만). 보내기 전에 보낼 목록을 보여 주고 동의를 받는다 ──
+  const [summary, setSummary] = useState<ProjectAnalysis | null>(null);
+  const [useSummary, setUseSummary] = useState(true);
+  const [mapReq, setMapReq] = useState<ReturnType<typeof buildOutline> | null>(null);
+  const [mapBusy, setMapBusy] = useState(false);
+  const [mapErr, setMapErr] = useState<string | null>(null);
+  const mapAbort = useRef<AbortController | null>(null);
+  useEffect(() => () => mapAbort.current?.abort(), []);
+  const a = summary && useSummary ? summary : base;
+  const runSummary = async () => {
+    if (!mapReq) return;
+    mapAbort.current = new AbortController();
+    setMapBusy(true); setMapErr(null);
+    const r = await sendMap(mapReq.text, mapAbort.current.signal);
+    const s = r.ok ? parseSummary(r.text, base, mapReq.ids) : r.message;
+    setMapBusy(false); setMapReq(null);
+    if (typeof s === 'string') return setMapErr(s);
+    setSummary(s); setUseSummary(true); setSel(null);
+  };
   const hasValid = (locs: CodeLocation[]) => locs.some((l) => resolveLocation(l, files).ok);
   const [ui, setUi] = useState<UiState>(() => {
     const { panelWidth = 520, collapsed = false, tab } = loadJSON<UiState>(UI_KEY) ?? {};
@@ -176,6 +197,12 @@ export default function App({ analysis: a, files }: { analysis: ProjectAnalysis;
                     {a.features.filter((f) => f.flowId).map((f) => <option key={f.id} value={f.flowId}>{f.title}</option>)}
                   </select>
                 )}
+                {!manual && (summary
+                  ? <button className="sm" onClick={() => { setUseSummary((u) => !u); setSel(null); }} title="AI 요약 지도와 자동 분석 전체 지도를 바꿔 봅니다">
+                      {useSummary ? '전체 보기' : 'AI 핵심만 보기'}</button>
+                  : <button className="primary sm" disabled={mapBusy} onClick={() => { setMapErr(null); setMapReq(buildOutline(base)); }}
+                      title="AI가 핵심 카드만 쉬운 말로 다시 묶습니다. 보내기 전에 내용을 보여 줍니다.">AI 핵심 요약</button>)}
+                {summary && useSummary && <span className="chip prov auto" title={summary.notice}>AI 추정 · 틀릴 수 있음</span>}
               </>
             )}
             <span className="legend" aria-label="연결선 범례">
@@ -190,6 +217,23 @@ export default function App({ analysis: a, files }: { analysis: ProjectAnalysis;
               </details>
             )}
           </nav>
+
+          {(mapReq || mapBusy || mapErr) && !flow && (
+            <div className="ai-box ai-consent" role="region" aria-label="AI 핵심 요약">
+              {mapBusy ? <div className="ai-row"><span>AI가 핵심 지도를 만드는 중…</span><button className="sm" onClick={() => mapAbort.current?.abort()}>요청 취소</button></div>
+                : mapErr ? <div className="ai-row"><span className="ai-bad">{mapErr}</span><button className="sm" onClick={() => setMapErr(null)}>닫기</button></div>
+                : mapReq && <>
+                  <strong>아래 목록을 ChatKHU(외부 AI 서비스)로 보냅니다</strong>
+                  <p className="muted">코드 본문은 보내지 않고, 자동 분석이 찾은 이름·파일 위치·선언 한 줄과 연결 목록만 보냅니다. 크레딧이 차감될 수 있습니다.</p>
+                  {mapReq.truncated && <p className="ai-bad">항목이 많아 일부만 보냅니다. 요약에서 빠지는 부분이 있을 수 있습니다.</p>}
+                  <details><summary>실제로 보낼 내용 전체</summary><pre className="ai-pre">{mapReq.text}</pre></details>
+                  <div className="ai-row">
+                    <button className="primary" onClick={runSummary}>확인했고 보냅니다</button>
+                    <button onClick={() => setMapReq(null)}>보내지 않기</button>
+                  </div>
+                </>}
+            </div>
+          )}
 
           <div className="canvas-wrap">
             {!flow && a.nodes.length === 0 ? (
